@@ -32,6 +32,59 @@ body {
   -webkit-font-smoothing: antialiased;
 }
 
+/* ── Progress panel ──────────────────────────────────────── */
+#progress-panel {
+  background: var(--s1);
+  border-bottom: 2px solid var(--rule);
+  padding: 14px 24px;
+}
+.prog-header {
+  font-size: 9px;
+  font-weight: 700;
+  letter-spacing: 2px;
+  text-transform: uppercase;
+  color: var(--ink-3);
+  margin-bottom: 10px;
+}
+.prog-step {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 3px 0;
+  font-size: 13px;
+  transition: color .2s;
+}
+.prog-step.pending { color: var(--ink-3); }
+.prog-step.active  { color: var(--ink); font-weight: 500; }
+.prog-step.done    { color: var(--up); }
+.prog-icon {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 16px;
+  height: 16px;
+  flex-shrink: 0;
+  font-size: 12px;
+}
+.spinner {
+  display: inline-block;
+  width: 10px;
+  height: 10px;
+  border: 1.5px solid var(--rule);
+  border-top-color: var(--ink);
+  border-radius: 50%;
+  animation: spin .7s linear infinite;
+}
+@keyframes spin { to { transform: rotate(360deg); } }
+
+/* ── IST clock ────────────────────────────────────────────── */
+.ist-clock {
+  font-family: var(--mono);
+  font-size: 11px;
+  color: var(--ink-3);
+  white-space: nowrap;
+}
+
 /* ── Ticker bar ──────────────────────────────────────────── */
 #ticker-bar {
   background: var(--ink);
@@ -448,12 +501,19 @@ select.model-sel:focus { border-color: var(--ink); }
     <div class="mast-sub" id="mast-sub">Live data via Yahoo Finance · Local AI</div>
   </div>
   <div class="mast-right">
+    <div class="ist-clock" id="ist-clock"></div>
     <select class="model-sel" id="model-sel">
       <option value="llama3.2">llama3.2</option>
     </select>
     <button id="run-btn" onclick="run()">▶ RUN</button>
   </div>
 </header>
+
+<!-- Progress panel -->
+<div id="progress-panel" class="hidden">
+  <div class="prog-header">Analysis in progress</div>
+  <div id="prog-steps"></div>
+</div>
 
 <!-- Status -->
 <div id="status-bar">
@@ -565,6 +625,8 @@ select.model-sel:focus { border-color: var(--ink); }
 // ── Util ──────────────────────────────────────────────────────────────────────
 const $ = id => document.getElementById(id)
 
+let _usdInr = 0   // updated on first market event
+
 function pct(v) {
   if (!v && v !== 0) return '—'
   const sign = v >= 0 ? '+' : ''
@@ -574,11 +636,60 @@ function price(v) {
   if (!v || v === 0) return '—'
   return `$${Number(v).toFixed(2)}`
 }
+function inr(usd) {
+  if (!usd || !_usdInr) return ''
+  return `₹${Math.round(usd * _usdInr).toLocaleString('en-IN')}`
+}
 function fmt(v, decimals=2) {
   if (!v && v !== 0) return '—'
   return Number(v).toFixed(decimals)
 }
 function chgClass(v) { return v >= 0 ? 'pos' : 'neg' }
+
+// ── IST clock ─────────────────────────────────────────────────────────────────
+function updateClock() {
+  const now  = new Date()
+  const date = now.toLocaleDateString('en-IN', { timeZone:'Asia/Kolkata', day:'2-digit', month:'short', year:'numeric' })
+  const time = now.toLocaleTimeString('en-IN', { timeZone:'Asia/Kolkata', hour:'2-digit', minute:'2-digit', second:'2-digit', hour12:false })
+  $('ist-clock').textContent = `${date} · ${time} IST`
+}
+setInterval(updateClock, 1000)
+updateClock()
+
+// ── Progress panel ────────────────────────────────────────────────────────────
+const STEPS = [
+  { id:'prices',     label:'Live prices · WTI, Brent, USO, NatGas, DXY, USD/INR' },
+  { id:'technicals', label:'Technicals · RSI-14, MACD, Bollinger Bands' },
+  { id:'options',    label:'USO options chain · IV, put/call ratio, active strikes' },
+  { id:'news',       label:'Yahoo Finance news' },
+  { id:'eia',        label:'EIA Weekly Petroleum Status Report' },
+  { id:'cot',        label:'CFTC Commitment of Traders · WTI managed money' },
+  { id:'bh',         label:'Baker Hughes North America rig count' },
+  { id:'opec_iea',   label:'OPEC Monthly Report · IEA Oil Market Report' },
+  { id:'ai',         label:'AI analysis · local inference' },
+]
+
+function initProgress() {
+  $('progress-panel').classList.remove('hidden')
+  $('prog-steps').innerHTML = STEPS.map(s =>
+    `<div class="prog-step pending" id="prog-${s.id}">
+       <span class="prog-icon">·</span>
+       <span>${s.label}</span>
+     </div>`
+  ).join('')
+}
+
+function updateProgress(step, done) {
+  const el = $(`prog-${step}`)
+  if (!el) return
+  if (done) {
+    el.className = 'prog-step done'
+    el.querySelector('.prog-icon').innerHTML = '✓'
+  } else {
+    el.className = 'prog-step active'
+    el.querySelector('.prog-icon').innerHTML = '<span class="spinner"></span>'
+  }
+}
 
 function setStatus(msg, state) {
   $('status-msg').textContent = msg
@@ -587,21 +698,26 @@ function setStatus(msg, state) {
 
 // ── Ticker bar ────────────────────────────────────────────────────────────────
 function renderTicker(m) {
+  if (m.usd_inr) _usdInr = m.usd_inr
+
+  const wtiInr  = inr(m.wti_price)
   const bars = [
-    { label:'WTI',     val: price(m.wti_price),    chg: pct(m.wti_change_pct),    cls: chgClass(m.wti_change_pct) },
-    { label:'BRENT',   val: price(m.brent_price),  chg: pct(m.brent_change_pct),  cls: chgClass(m.brent_change_pct) },
-    { label:'USO',     val: price(m.uso_price),     chg: pct(m.uso_change_pct),    cls: chgClass(m.uso_change_pct) },
-    { label:'NAT GAS', val: price(m.nat_gas),       chg: pct(m.nat_gas_pct),       cls: chgClass(m.nat_gas_pct) },
-    { label:'DXY',     val: fmt(m.dollar_idx,1),   chg: pct(m.dollar_pct),        cls: chgClass(m.dollar_pct) },
-    { label:'RSI',     val: fmt(m.rsi_14,1),        chg: m.rsi_14>70?'OVERBOUGHT':m.rsi_14<30?'OVERSOLD':'', cls: m.rsi_14>70?'neg':m.rsi_14<30?'pos':'' },
-    { label:'IV',      val: `${fmt(m.atm_iv,1)}%`, chg: m.atm_iv>35?'ELEVATED':m.atm_iv<20?'LOW':'',        cls: m.atm_iv>35?'neg':'' },
-    { label:'P/C',     val: fmt(m.put_call_ratio,2),chg: m.put_call_ratio<0.8?'BULLISH':m.put_call_ratio>1.2?'BEARISH':'', cls: m.put_call_ratio<0.8?'pos':m.put_call_ratio>1.2?'neg':'' },
+    { label:'WTI',     val: price(m.wti_price),     chg: pct(m.wti_change_pct),    cls: chgClass(m.wti_change_pct),  sub: wtiInr },
+    { label:'BRENT',   val: price(m.brent_price),   chg: pct(m.brent_change_pct),  cls: chgClass(m.brent_change_pct) },
+    { label:'USO',     val: price(m.uso_price),      chg: pct(m.uso_change_pct),    cls: chgClass(m.uso_change_pct) },
+    { label:'NAT GAS', val: price(m.nat_gas),        chg: pct(m.nat_gas_pct),       cls: chgClass(m.nat_gas_pct) },
+    { label:'DXY',     val: fmt(m.dollar_idx,1),    chg: pct(m.dollar_pct),        cls: chgClass(m.dollar_pct) },
+    { label:'USD/INR', val: m.usd_inr ? fmt(m.usd_inr,2) : '—', chg:'', cls:'' },
+    { label:'RSI',     val: fmt(m.rsi_14,1),         chg: m.rsi_14>70?'OVERBOUGHT':m.rsi_14<30?'OVERSOLD':'', cls: m.rsi_14>70?'neg':m.rsi_14<30?'pos':'' },
+    { label:'IV',      val: `${fmt(m.atm_iv,1)}%`,  chg: m.atm_iv>35?'ELEVATED':m.atm_iv<20?'LOW':'',        cls: m.atm_iv>35?'neg':'' },
+    { label:'P/C',     val: fmt(m.put_call_ratio,2), chg: m.put_call_ratio<0.8?'BULLISH':m.put_call_ratio>1.2?'BEARISH':'', cls: m.put_call_ratio<0.8?'pos':m.put_call_ratio>1.2?'neg':'' },
   ]
   $('ticker-bar').innerHTML = bars.map((b,i) => `
     <div class="tick">
       <span class="tick-label">${b.label}</span>
       <span class="tick-price">${b.val}</span>
       ${b.chg ? `<span class="tick-chg ${b.cls}">${b.chg}</span>` : ''}
+      ${b.sub ? `<span class="tick-chg" style="color:#6ee7a0;font-size:10px">${b.sub}</span>` : ''}
     </div>
     ${i < bars.length-1 ? '<div class="tick-div">·</div>' : ''}
   `).join('')
@@ -880,10 +996,8 @@ function run() {
   btn.classList.add('spin')
   btn.textContent = '⟳'
 
-  $('mast-sub').textContent = new Date().toLocaleString('en-US',
-    {month:'short',day:'numeric',year:'numeric',hour:'2-digit',minute:'2-digit',timeZoneName:'short'})
-
-  setStatus('Connecting to Yahoo Finance…', 'go')
+  initProgress()
+  setStatus('Starting…', 'go')
 
   const model = $('model-sel').value
   sse = new EventSource(`/api/analyze?model=${encodeURIComponent(model)}`)
@@ -891,26 +1005,27 @@ function run() {
   sse.onmessage = e => {
     const msg = JSON.parse(e.data)
     switch(msg.type) {
-      case 'status':
-        setStatus(msg.message, 'go')
+      case 'progress':
+        updateProgress(msg.step, msg.done)
+        setStatus(msg.done ? `✓ ${msg.message}` : msg.message, 'go')
         break
       case 'market':
         renderTicker(msg.data)
         renderTech(msg.data)
         renderReports(msg.data.tier1)
-        setStatus(`Live data: WTI ${price(msg.data.wti_price)} ${pct(msg.data.wti_change_pct)} · Running analysis…`, 'go')
         break
       case 'news':
-        renderNews(msg.items, msg.data && msg.data.timestamp)
+        renderNews(msg.items)
         break
       case 'analysis':
         renderAnalysis(msg.data)
         break
       case 'done':
-        setStatus('Analysis complete. Data from Yahoo Finance.', 'done')
+        setStatus(`Analysis complete · USD/INR ${_usdInr ? fmt(_usdInr,2) : '—'} · IST`, 'done')
         btn.disabled = false
         btn.classList.remove('spin')
         btn.textContent = '↺ REFRESH'
+        setTimeout(() => $('progress-panel').classList.add('hidden'), 3000)
         sse.close(); sse = null
         break
       case 'error':
@@ -920,6 +1035,7 @@ function run() {
         btn.disabled = false
         btn.classList.remove('spin')
         btn.textContent = '↺ RETRY'
+        $('progress-panel').classList.add('hidden')
         sse.close(); sse = null
         break
     }

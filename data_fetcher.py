@@ -56,6 +56,8 @@ class MarketSnapshot:
     dollar_idx:        float = 0.0
     dollar_pct:        float = 0.0
 
+    usd_inr:           float = 0.0   # live USD/INR exchange rate (USDINR=X)
+
     # ── Technicals (computed from WTI daily history) ───────────
     rsi_14:            float = 0.0
     ma_20:             float = 0.0
@@ -149,6 +151,7 @@ def _fetch_prices(snap: MarketSnapshot) -> None:
         ("USO",      "uso"),
         ("NG=F",     "nat_gas"),
         ("DX-Y.NYB", "dollar"),
+        ("USDINR=X", "usd_inr"),
     ]
     for sym, key in pairs:
         try:
@@ -170,6 +173,8 @@ def _fetch_prices(snap: MarketSnapshot) -> None:
             elif key == "dollar":
                 snap.dollar_idx = cur
                 snap.dollar_pct = _pct_change(cur, prev)
+            elif key == "usd_inr":
+                snap.usd_inr = round(cur, 2)
         except Exception:
             snap.data_quality = "degraded"
 
