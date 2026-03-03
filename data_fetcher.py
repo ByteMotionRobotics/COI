@@ -1,11 +1,12 @@
 """
-data_fetcher.py — Real market data via yfinance.
+data_fetcher.py — Real market data via yfinance + Tier 1 reports.
 
 Fetches:
   • Live prices:   WTI (CL=F), Brent (BZ=F), USO ETF, DXY, Natural Gas
   • Technicals:    RSI-14, MA-20/50/200, MACD signal, volume ratio
   • Options:       USO put/call ratio, ATM IV, active strikes, DTE
   • News:          Yahoo Finance ticker news (CL=F, USO, BZ=F)
+  • Tier 1:        EIA weekly, CFTC COT, Baker Hughes rig count, OPEC/IEA
 
 All fields degrade gracefully — partial data is always returned.
 """
@@ -18,6 +19,8 @@ from datetime import datetime, timezone
 
 import pandas as pd
 import yfinance as yf
+
+from tier1_fetcher import Tier1Snapshot, fetch_tier1_snapshot, tier1_to_context
 
 
 # ── Data model ────────────────────────────────────────────────────────────────
@@ -77,6 +80,9 @@ class MarketSnapshot:
 
     # ── News ──────────────────────────────────────────────────
     news: list[NewsItem] = field(default_factory=list)
+
+    # ── Tier 1 reports ────────────────────────────────────────
+    tier1: Tier1Snapshot = field(default_factory=Tier1Snapshot)
 
     # ── Meta ──────────────────────────────────────────────────
     timestamp:        str   = ""
@@ -307,6 +313,7 @@ def fetch_market_snapshot() -> MarketSnapshot:
     _fetch_technicals(snap)
     _fetch_options(snap)
     _fetch_news(snap)
+    snap.tier1 = fetch_tier1_snapshot()
 
     return snap
 
@@ -356,6 +363,9 @@ def snapshot_to_context(snap: MarketSnapshot) -> str:
         lines.append("=== RECENT NEWS (Yahoo Finance) ===")
         for n in snap.news[:12]:
             lines.append(f"  [{n.published}]  {n.title}")
+
+    lines.append("")
+    lines.append(tier1_to_context(snap.tier1))
 
     lines.append(f"\nData timestamp: {snap.timestamp}  Quality: {snap.data_quality}")
     return "\n".join(lines)

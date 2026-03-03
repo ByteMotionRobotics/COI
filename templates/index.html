@@ -341,6 +341,61 @@ select.model-sel:focus { border-color: var(--ink); }
 .news-t  { font-size: 14px; color: var(--ink); flex: 1; line-height: 1.4; }
 .news-ts { font-family: var(--mono); font-size: 11px; color: var(--ink-3); flex-shrink: 0; }
 
+/* ── Tier 1 Reports ──────────────────────────────────────── */
+.reports-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 16px;
+}
+@media(max-width:600px){ .reports-grid { grid-template-columns: 1fr; } }
+
+.report-card {
+  background: var(--s1);
+  border: 1px solid var(--rule);
+  border-radius: 6px;
+  padding: 16px 18px;
+}
+.report-card-label {
+  font-size: 9px;
+  font-weight: 700;
+  letter-spacing: 2px;
+  text-transform: uppercase;
+  color: var(--ink-3);
+  margin-bottom: 12px;
+}
+.report-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  gap: 8px;
+  padding: 4px 0;
+  border-bottom: 1px solid var(--rule);
+  font-size: 13px;
+}
+.report-row:last-child { border-bottom: none; }
+.report-key { color: var(--ink-3); flex-shrink: 0; }
+.report-val { font-family: var(--mono); font-weight: 600; color: var(--ink); text-align: right; }
+.report-val.draw   { color: var(--up); }
+.report-val.build  { color: var(--down); }
+.report-val.bull   { color: var(--up); }
+.report-val.bear   { color: var(--down); }
+.report-val.warn   { color: var(--gold); }
+
+.cot-bar-wrap { margin-top: 10px; }
+.cot-bar-bg   { background: var(--rule); border-radius: 2px; height: 5px; width: 100%; }
+.cot-bar-fill { height: 100%; border-radius: 2px; transition: width .6s ease; }
+.cot-bar-fill.bull { background: var(--up); }
+.cot-bar-fill.bear { background: var(--down); }
+.cot-bar-fill.warn { background: var(--gold); }
+.cot-signal { font-size: 12px; color: var(--ink-2); margin-top: 6px; line-height: 1.4; }
+
+.report-headline {
+  font-size: 12px;
+  color: var(--ink-2);
+  line-height: 1.5;
+  margin-top: 6px;
+}
+
 /* ── Error ────────────────────────────────────────────────── */
 .err-box {
   border: 1px solid var(--down);
@@ -492,6 +547,12 @@ select.model-sel:focus { border-color: var(--ink); }
     <div class="action-bar" id="action-bar">—</div>
   </div>
 
+  <!-- ── Tier 1 Reports ──────────────────────────────────── -->
+  <div class="section" id="reports-sec" style="display:none">
+    <div class="sec-label">Tier 1 Market Reports</div>
+    <div class="reports-grid" id="reports-grid"></div>
+  </div>
+
   <!-- ── News ─────────────────────────────────────────────── -->
   <div class="section" id="news-sec" style="display:none">
     <div class="sec-label">Live News <span id="news-ts" style="color:var(--ink-3)"></span></div>
@@ -595,6 +656,123 @@ function renderTech(m) {
       <div class="tech-sub">${m.volume_ratio>1.2?'Above avg — conviction':'Below avg — watch for follow-through'}</div>
     </div>
   `
+}
+
+// ── Tier 1 Reports panel ──────────────────────────────────────────────────────
+function renderReports(t1) {
+  if (!t1) return
+  const sec = $('reports-sec')
+
+  function chgVal(v, unit='mb') {
+    if (!v) return { text: '—', cls: '' }
+    const sign = v > 0 ? '+' : ''
+    return {
+      text: `${sign}${Number(v).toFixed(1)} ${unit}`,
+      cls:  v < 0 ? 'draw' : 'build'
+    }
+  }
+
+  // ── EIA card ────────────────────────────────────────────
+  let eiaHtml = `<div class="report-card">
+    <div class="report-card-label">EIA Weekly${t1.eia_report_date ? ' · ' + t1.eia_report_date : ''}</div>`
+
+  if (t1.cushing_mb) {
+    const cw = chgVal(t1.cushing_wow)
+    const uw = chgVal(t1.total_us_wow)
+    eiaHtml += `
+    <div class="report-row">
+      <span class="report-key">Cushing, OK</span>
+      <span class="report-val">${Number(t1.cushing_mb).toFixed(1)} mb
+        ${cw.text !== '—' ? `<span class="${cw.cls}" style="font-size:11px;margin-left:4px">${cw.text}</span>` : ''}</span>
+    </div>
+    <div class="report-row">
+      <span class="report-key">Total US stocks</span>
+      <span class="report-val">${Number(t1.total_us_mb).toFixed(1)} mb
+        ${uw.text !== '—' ? `<span class="${uw.cls}" style="font-size:11px;margin-left:4px">${uw.text}</span>` : ''}</span>
+    </div>
+    <div class="report-row">
+      <span class="report-key">US production</span>
+      <span class="report-val">${t1.us_prod_kbpd ? Number(t1.us_prod_kbpd).toLocaleString() + ' kbpd' : '—'}</span>
+    </div>
+    <div class="report-row">
+      <span class="report-key">Refinery util</span>
+      <span class="report-val">${t1.refinery_util ? Number(t1.refinery_util).toFixed(1) + '%' : '—'}</span>
+    </div>`
+  } else {
+    eiaHtml += `<div class="report-row"><span class="report-key" style="font-size:12px;color:var(--ink-2)">Add <strong>EIA_API_KEY</strong> to .env for live data.<br>Free key: <a href="https://www.eia.gov/opendata/register.php" target="_blank" style="color:var(--gold)">eia.gov/opendata</a></span></div>`
+  }
+  eiaHtml += `</div>`
+
+  // ── CFTC COT card ──────────────────────────────────────
+  let cotHtml = `<div class="report-card">
+    <div class="report-card-label">CFTC COT · WTI Managed Money${t1.cot_date ? ' · ' + t1.cot_date : ''}</div>`
+
+  if (t1.mm_net) {
+    const netSign = t1.mm_net > 0 ? '+' : ''
+    const netCls  = t1.mm_pct >= 0.85 ? 'warn' : t1.mm_pct <= 0.15 ? 'bull' : ''
+    const barCls  = t1.mm_pct >= 0.85 ? 'warn' : t1.mm_pct <= 0.15 ? 'bull' : 'bull'
+    const barW    = Math.round(t1.mm_pct * 100)
+    cotHtml += `
+    <div class="report-row">
+      <span class="report-key">Net position</span>
+      <span class="report-val ${netCls}">${netSign}${Number(t1.mm_net).toLocaleString()}</span>
+    </div>
+    <div class="report-row">
+      <span class="report-key">Long / Short</span>
+      <span class="report-val">${Number(t1.mm_long).toLocaleString()} / ${Number(t1.mm_short).toLocaleString()}</span>
+    </div>
+    <div class="cot-bar-wrap">
+      <div class="cot-bar-bg"><div class="cot-bar-fill ${barCls}" style="width:${barW}%"></div></div>
+      <div class="cot-signal">${t1.mm_signal || ''}</div>
+    </div>`
+  } else {
+    cotHtml += `<div class="report-row"><span class="report-key" style="font-size:12px;color:var(--ink-2)">Fetching CFTC data…</span></div>`
+  }
+  cotHtml += `</div>`
+
+  // ── Baker Hughes + OPEC/IEA card ───────────────────────
+  let bhHtml = `<div class="report-card">
+    <div class="report-card-label">Baker Hughes · NA Rig Count${t1.bh_date ? ' · ' + t1.bh_date : ''}</div>`
+
+  if (t1.oil_rigs) {
+    const wowSign = t1.rig_wow > 0 ? '+' : ''
+    const wowCls  = t1.rig_wow > 0 ? 'build' : t1.rig_wow < 0 ? 'draw' : ''
+    bhHtml += `
+    <div class="report-row">
+      <span class="report-key">US oil rigs</span>
+      <span class="report-val">${t1.oil_rigs}
+        ${t1.rig_wow ? `<span class="${wowCls}" style="font-size:11px;margin-left:4px">${wowSign}${t1.rig_wow} WoW</span>` : ''}</span>
+    </div>`
+  } else {
+    bhHtml += `<div class="report-row"><span class="report-key" style="font-size:12px;color:var(--ink-2)">Rig count unavailable</span></div>`
+  }
+  bhHtml += `</div>`
+
+  // ── OPEC / IEA card ────────────────────────────────────
+  let rptHtml = `<div class="report-card">
+    <div class="report-card-label">OPEC &amp; IEA Reports</div>`
+
+  if (t1.opec_headline) {
+    rptHtml += `
+    <div class="report-row" style="flex-direction:column;align-items:flex-start;gap:4px">
+      <span class="report-key">OPEC MOMR${t1.opec_date ? ' · ' + t1.opec_date : ''}</span>
+      <span class="report-headline">${t1.opec_headline}</span>
+    </div>`
+  }
+  if (t1.iea_headline) {
+    rptHtml += `
+    <div class="report-row" style="flex-direction:column;align-items:flex-start;gap:4px">
+      <span class="report-key">IEA OMR${t1.iea_date ? ' · ' + t1.iea_date : ''}</span>
+      <span class="report-headline">${t1.iea_headline}</span>
+    </div>`
+  }
+  if (!t1.opec_headline && !t1.iea_headline) {
+    rptHtml += `<div class="report-row"><span class="report-key" style="font-size:12px;color:var(--ink-2)">Report headlines unavailable</span></div>`
+  }
+  rptHtml += `</div>`
+
+  $('reports-grid').innerHTML = eiaHtml + cotHtml + bhHtml + rptHtml
+  sec.style.display = 'block'
 }
 
 // ── News panel ────────────────────────────────────────────────────────────────
@@ -719,6 +897,7 @@ function run() {
       case 'market':
         renderTicker(msg.data)
         renderTech(msg.data)
+        renderReports(msg.data.tier1)
         setStatus(`Live data: WTI ${price(msg.data.wti_price)} ${pct(msg.data.wti_change_pct)} · Running analysis…`, 'go')
         break
       case 'news':
